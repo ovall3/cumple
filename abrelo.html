@@ -1,0 +1,391 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Para Vale - Corazón</title>
+  <style>
+    html,body {
+      height:100%;
+      margin:0;
+      background:#000;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #fff;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    .wrap {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100%;
+      flex-direction:column;
+    }
+
+    canvas {
+      background: #000;
+      border-radius: 6px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.7), inset 0 0 30px rgba(255,182,193,0.02);
+    }
+
+    .controls {
+      margin-top:12px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+
+    button {
+      background: linear-gradient(180deg,#ff87b3,#ff5f9f);
+      border: none;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-weight:600;
+      cursor:pointer;
+      box-shadow: 0 6px 18px rgba(255,95,159,0.18);
+    }
+
+    button.secondary {
+      background: rgba(255,255,255,0.06);
+      color: white;
+      box-shadow:none;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .hint {
+      color: #bbb;
+      font-size: 13px;
+      margin-left:8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="c" width="800" height="600" aria-label="Corazón para Vale"></canvas>
+
+    <div class="controls">
+      <button id="startBtn">Reproducir música y comenzar</button>
+      <button id="replayBtn" class="secondary">Reiniciar animación</button>
+      <div class="hint">Asegúrate de tener <strong>Taylor Swift - Lover.mp3</strong> en la misma carpeta.</div>
+    </div>
+  </div>
+
+  <!-- Audio (usa el archivo que subiste) -->
+  <audio id="music" src="Taylor Swift - Lover(2).mp3" loop preload="auto"></audio>
+
+  <script>
+    // Canvas y contexto
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // --- Estrellas ---
+    // --- Flores amarillas ---
+    // Cada flor tiene posición, tamaño, y "progreso" de crecimiento
+    const flowerCount = 40;
+    let flowers = [];
+
+    function pointInHeart(x, y) {
+      // Convert canvas (x, y) to heart parametric coordinates
+      // Inverse of toCanvas
+      const cx = W / 2;
+      const cy = H / 2 - 30;
+      const px = x - cx;
+      const py = y - cy;
+      // Try to find t such that heartPoint(t, 16) is close to (px, py)
+      // Instead, use a simple bounding circle for speed
+      // Heart is roughly within radius 16*16=256, but shape is smaller
+      return Math.pow(px,2) + Math.pow(py,2) < 220*220;
+    }
+
+    function initFlowers() {
+      flowers = [];
+      let attempts = 0;
+      while (flowers.length < flowerCount && attempts < flowerCount * 10) {
+        attempts++;
+        const x = Math.random() * W;
+        const y = Math.random() * H;
+        if (pointInHeart(x, y)) continue; // skip if inside heart zone
+        const maxSize = 18 + Math.random() * 12;
+        flowers.push({
+          x,
+          y,
+          maxSize,
+          size: 0,
+          growSpeed: 0.15 + Math.random() * 0.08,
+          petals: 6 + Math.floor(Math.random()*3)
+        });
+      }
+    }
+
+    function drawFlowers() {
+      ctx.save();
+      for (const f of flowers) {
+        // Animar crecimiento
+        if (f.size < f.maxSize) {
+          f.size += f.growSpeed;
+          if (f.size > f.maxSize) f.size = f.maxSize;
+        }
+        drawFlower(f.x, f.y, f.size, f.petals);
+      }
+      ctx.restore();
+    }
+
+    // Dibuja una flor simple con pétalos amarillos
+    function drawFlower(x, y, size, petals = 7) {
+      ctx.save();
+      ctx.translate(x, y);
+      // pétalos
+      for (let i = 0; i < petals; i++) {
+        ctx.rotate((2 * Math.PI) / petals);
+        ctx.beginPath();
+        ctx.ellipse(0, size * 0.45, size * 0.22, size * 0.45, 0, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255, 220, 40, 0.92)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 200, 0, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      // centro
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.18, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(255, 180, 0, 0.95)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Limpia y dibuja fondo (estrellas ligeras)
+    function drawBackground() {
+      ctx.clearRect(0, 0, W, H);
+      // fondo negro ya en CSS, pero podemos poner un muy sutil gradiente
+      const g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, '#000011');
+      g.addColorStop(1, '#000000');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,W,H);
+      drawFlowers();
+    }
+
+    // --- Curva paramétrica del corazón ---
+    // Parametric heart (scaled) using classic formula:
+    // x = 16 sin^3(t)
+    // y = 13 cos(t) - 5 cos(2t) - 2 cos(3t) - cos(4t)
+    // We'll scale and translate to canvas coordinates.
+    function heartPoint(t, scale = 15) {
+      const x = 16 * Math.pow(Math.sin(t), 3);
+      const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+      return { x: x * scale, y: -y * scale }; // invert y (parametric y increases upward)
+    }
+
+    // Convert points to canvas coordinates (centered)
+    function toCanvas(p) {
+      const cx = W / 2;
+      const cy = H / 2 - 30; // move a bit upward
+      return { x: cx + p.x, y: cy + p.y };
+    }
+
+    // Precompute heart sample points (smooth)
+    const samples = [];
+    (function prepareSamples(){
+      const steps = 700; // more steps = smoother drawing
+      for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * Math.PI * 2;
+        const p = heartPoint(t, 16); // scale
+        samples.push(toCanvas(p));
+      }
+    })();
+
+    // --- Animación de dibujo del corazón ---
+    let animReq = null;
+    let index = 0;
+    let drawnPoints = []; // puntos que ya fueron dibujados
+    let filled = false;
+
+    function resetAnimation() {
+      if (animReq) cancelAnimationFrame(animReq);
+      index = 0;
+      drawnPoints = [];
+      filled = false;
+      initFlowers(); // inicializa flores
+      drawBackground();
+      drawStarGlow(); // opcional glow
+      // redibujar textos vacíos (nos encargaremos de aparecerlos después)
+      textAlpha1 = 0;
+      textAlpha2 = 0;
+      drawUIOverlay(); // draw initial overlay without texts
+    }
+
+    function drawHeartSegment() {
+      if (index < samples.length) {
+        // take several points per frame for speed control
+        const perFrame = 6; // aumentamos para mayor velocidad
+        for (let k = 0; k < perFrame && index < samples.length; k++) {
+          drawnPoints.push(samples[index++]);
+        }
+      } else if (!filled) {
+        // fill the heart shape after finishing stroke
+        filled = true;
+      }
+    }
+
+    function renderHeart() {
+      // stroke path
+      if (drawnPoints.length > 1) {
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(255,182,193,0.95)'; // rosa claro
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(drawnPoints[0].x, drawnPoints[0].y);
+        for (let i = 1; i < drawnPoints.length; i++) {
+          ctx.lineTo(drawnPoints[i].x, drawnPoints[i].y);
+        }
+        ctx.stroke();
+      }
+
+      // fill when finished
+      if (filled) {
+        ctx.beginPath();
+        ctx.moveTo(samples[0].x, samples[0].y);
+        for (let i = 1; i < samples.length; i++) {
+          ctx.lineTo(samples[i].x, samples[i].y);
+        }
+        ctx.closePath();
+        // gradiente de relleno
+        const g = ctx.createLinearGradient(W/2, H/2-150, W/2, H/2+50);
+        g.addColorStop(0, '#ff9fc0');
+        g.addColorStop(0.6, '#ff6f97');
+        g.addColorStop(1, '#ff3b76');
+        ctx.fillStyle = g;
+        ctx.fill();
+        // soften outline
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    // Pequeño resplandor debajo del corazón (opcional)
+    function drawStarGlow() {
+      const grad = ctx.createRadialGradient(W/2, H/2 + 70, 10, W/2, H/2 + 70, 200);
+      grad.addColorStop(0, 'rgba(255,182,193,0.28)');
+      grad.addColorStop(1, 'rgba(255,182,193,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(W/2, H/2 + 70, 200, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // --- Textos (aparecen con fade-in) ---
+    let textAlpha1 = 0;
+    let textAlpha2 = 0;
+
+    function drawUIOverlay() {
+      // Textos encima: usamos fillText con alpha
+      ctx.save();
+      // shadow para el texto
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = 6;
+      ctx.textAlign = 'center';
+
+      // Texto 1
+      ctx.globalAlpha = textAlpha1;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 30px Arial';
+      ctx.fillText('Feliz cumple Vale :D', W/2, H - 200);
+
+      // Texto 2
+      ctx.globalAlpha = textAlpha2;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '22px Arial';
+      ctx.fillText('you know that i love you', W/2, H - 150);
+
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // --- Bucle de animación principal ---
+    function animate() {
+      drawBackground();
+      drawStarGlow();
+
+      // animate heart segments
+      drawHeartSegment();
+      renderHeart();
+
+      // manage text alpha: start fading in after heart is filled
+      if (filled) {
+        if (textAlpha1 < 1) textAlpha1 += 0.03;
+        else if (textAlpha2 < 1) textAlpha2 += 0.03;
+      }
+
+      drawUIOverlay();
+
+      animReq = requestAnimationFrame(animate);
+    }
+
+    // Inicial
+    resetAnimation();
+    // NOTA: no iniciamos animate automáticamente para que el usuario pueda presionar "Reproducir música y comenzar".
+    // Pero si prefieres que comience solo, puedes descomentar animate() a continuación:
+     animate();
+
+    // --- Controles UI ---
+    const music = document.getElementById('music');
+    const startBtn = document.getElementById('startBtn');
+    const replayBtn = document.getElementById('replayBtn');
+
+    // Intentar reproducir música automáticamente al cargar
+    music.play().catch(()=>{});
+
+    startBtn.addEventListener('click', async () => {
+      // reproducir audio (necesita interacción del usuario)
+      try {
+        await music.play();
+      } catch (e) {
+        console.warn('No se pudo iniciar la reproducción automática:', e);
+      }
+
+      // iniciar animación
+      if (!animReq) animate();
+    });
+
+    replayBtn.addEventListener('click', () => {
+      // reinicia el audio a inicio y reinicia animación
+      music.pause();
+      music.currentTime = 0;
+      // restart music after a user gesture:
+      music.play().catch(()=>{});
+      resetAnimation();
+      // small delay so reset cleanly shows background before drawing
+      setTimeout(()=> {
+        if (!animReq) animate();
+      }, 100);
+    });
+
+    //boton para musica
+    canvas.addEventListener('click', () => {
+      if (music.paused) {
+        music.play().catch(()=>{});
+      }
+      if (!animReq) animate();
+    });
+
+    // Compatibilidad móvil: resume audio on focus (gesture required on many mobile browsers)
+    window.addEventListener('touchstart', function resumeOnTouch() {
+      if (music.paused) music.play().catch(()=>{});
+      window.removeEventListener('touchstart', resumeOnTouch);
+    });
+
+    // Dibujo inicial (fondo)
+    drawBackground();
+    drawUIOverlay();
+
+  </script>
+</body>
+</html>
